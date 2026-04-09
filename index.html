@@ -72,8 +72,8 @@
             const containerRef = useRef(null);
             const [isComposing, setIsComposing] = useState(false);
 
-            // Safariがズームしない安全な基準サイズ
-            const BASE_FONT_SIZE = 16;
+            // Safariがズームしない安全な基準サイズを18pxに変更
+            const BASE_FONT_SIZE = 18;
             // ユーザー設定サイズとの倍率
             const scale = fontSize / BASE_FONT_SIZE;
 
@@ -82,7 +82,7 @@
                 const container = containerRef.current;
                 if (el && container) {
                     el.style.height = 'auto';
-                    const sh = el.scrollHeight; // 16pxベースでの高さ
+                    const sh = el.scrollHeight; // BASE_FONT_SIZEベースでの高さ
                     el.style.height = sh + 'px';
                     // 縮小・拡大された実際の見た目の高さを親ラッパーに適用
                     container.style.height = `${sh * scale}px`;
@@ -157,7 +157,7 @@
                             placeholder={index === 0 && block.text === '' ? "思いついたことを記述する..." : ""}
                             className="bg-transparent text-gray-200 outline-none resize-none overflow-hidden placeholder-dark-600"
                             style={{ 
-                                // システム上は常に16px固定
+                                // システム上は常に基準サイズで固定
                                 fontSize: `${BASE_FONT_SIZE}px`, 
                                 lineHeight: 1.5,
                                 // 倍率に合わせて横幅を拡張（縮小時に元の幅に戻るように逆算）
