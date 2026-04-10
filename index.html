@@ -2,7 +2,8 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- アプリのベースとしてズーム無効化を宣言（Safariでは無視される場合があるためJSと併用） -->
+    <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Unscroll</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -34,7 +35,17 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #555; }
-        body { margin: 0; overflow: hidden; background-color: #121212; color: #e5e5e5; font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif; }
+        /* * touch-action: pan-y; を追加し、ブラウザレベルでの横方向スワイプやピンチズームをCSSでも抑制 
+         */
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #121212; 
+            color: #e5e5e5; 
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            touch-action: pan-y; 
+            -webkit-text-size-adjust: 100%;
+        }
         
         input[type=range] {
             -webkit-appearance: none;
@@ -68,24 +79,12 @@
         const generateId = () => Math.random().toString(36).substring(2, 11);
 
         // --- Viewport Control Helpers ---
+        // 手動ズームを無効化するため、基本的には常にロック状態を維持する方針となりますが
+        // 念のため入力時の強制ロック処理は残し、堅牢性を高めます。
         const lockViewport = () => {
             const meta = document.getElementById('viewport-meta');
             if (meta && !meta.content.includes('maximum-scale=1.0')) {
                 meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-            }
-        };
-
-        const unlockViewport = () => {
-            const meta = document.getElementById('viewport-meta');
-            if (meta) {
-                // 解除前に現在フォーカスが当たっているか確認し、入力中であれば解除しない
-                setTimeout(() => {
-                    const active = document.activeElement;
-                    if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) {
-                        return;
-                    }
-                    meta.content = 'width=device-width, initial-scale=1.0';
-                }, 100);
             }
         };
 
@@ -105,13 +104,9 @@
                 adjustHeight();
             }, [block.text, fontSize]);
 
-            // プログラム側からのフォーカス要求処理（エンターキーやジャンプ時）
             useEffect(() => {
                 if (focusRequest && focusRequest.id === block.id && textareaRef.current) {
-                    // フォーカス処理の直前にViewportを強制ロックする
                     lockViewport();
-                    
-                    // DOMにメタタグの変更が確実に反映されるのを待つため、1フレーム遅延させてフォーカスを実行
                     requestAnimationFrame(() => {
                         if (textareaRef.current) {
                             textareaRef.current.focus();
@@ -195,30 +190,41 @@
             
             const [fontSize, setFontSize] = useState(18);
 
-            // タップ操作などのネイティブイベントに対するViewport制御
+            // --- ピンチズーム無効化のためのネイティブイベント制御 ---
             useEffect(() => {
-                const preventZoom = (e) => {
+                // 2本指以上のタッチによるスワイプ・ピンチをキャンセル
+                const preventPinchZoom = (e) => {
+                    if (e.touches && e.touches.length > 1) {
+                        e.preventDefault();
+                    }
+                };
+
+                // Safari独自のズームジェスチャーをキャンセル
+                const preventGesture = (e) => {
+                    e.preventDefault();
+                };
+
+                // passive: false を指定し、preventDefault() を機能させる
+                document.addEventListener('touchmove', preventPinchZoom, { passive: false });
+                document.addEventListener('gesturestart', preventGesture, { passive: false });
+                document.addEventListener('gesturechange', preventGesture, { passive: false });
+
+                // 入力時の強制ズームを防ぐロック処理
+                const handleFocusIn = (e) => {
                     const target = e.target;
                     if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
                         lockViewport();
                     }
                 };
-
-                const restoreZoom = (e) => {
-                    const target = e.target;
-                    if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
-                        unlockViewport();
-                    }
-                };
-
-                document.addEventListener('touchstart', preventZoom, { capture: true, passive: true });
-                document.addEventListener('focusin', preventZoom, { capture: true });
-                document.addEventListener('focusout', restoreZoom, { capture: true });
+                document.addEventListener('touchstart', handleFocusIn, { capture: true, passive: true });
+                document.addEventListener('focusin', handleFocusIn, { capture: true });
 
                 return () => {
-                    document.removeEventListener('touchstart', preventZoom, { capture: true });
-                    document.removeEventListener('focusin', preventZoom, { capture: true });
-                    document.removeEventListener('focusout', restoreZoom, { capture: true });
+                    document.removeEventListener('touchmove', preventPinchZoom);
+                    document.removeEventListener('gesturestart', preventGesture);
+                    document.removeEventListener('gesturechange', preventGesture);
+                    document.removeEventListener('touchstart', handleFocusIn, { capture: true });
+                    document.removeEventListener('focusin', handleFocusIn, { capture: true });
                 };
             }, []);
 
@@ -314,7 +320,6 @@
                     if (window.innerWidth < 768) {
                         setSidebarOpen(false);
                     }
-                    // ジャンプによるフォーカス移動の準備としてロック
                     lockViewport();
                     setFocusRequest({ id, offset: 0 });
                 }
