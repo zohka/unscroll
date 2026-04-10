@@ -67,6 +67,28 @@
 
         const generateId = () => Math.random().toString(36).substring(2, 11);
 
+        // --- Viewport Control Helpers ---
+        const lockViewport = () => {
+            const meta = document.getElementById('viewport-meta');
+            if (meta && !meta.content.includes('maximum-scale=1.0')) {
+                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+            }
+        };
+
+        const unlockViewport = () => {
+            const meta = document.getElementById('viewport-meta');
+            if (meta) {
+                // 解除前に現在フォーカスが当たっているか確認し、入力中であれば解除しない
+                setTimeout(() => {
+                    const active = document.activeElement;
+                    if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) {
+                        return;
+                    }
+                    meta.content = 'width=device-width, initial-scale=1.0';
+                }, 100);
+            }
+        };
+
         const Block = ({ block, index, onChange, onSplit, onMerge, onToggleSticky, focusRequest, onFocusHandled, fontSize }) => {
             const textareaRef = useRef(null);
             const [isComposing, setIsComposing] = useState(false);
@@ -83,11 +105,20 @@
                 adjustHeight();
             }, [block.text, fontSize]);
 
+            // プログラム側からのフォーカス要求処理（エンターキーやジャンプ時）
             useEffect(() => {
                 if (focusRequest && focusRequest.id === block.id && textareaRef.current) {
-                    textareaRef.current.focus();
-                    textareaRef.current.setSelectionRange(focusRequest.offset, focusRequest.offset);
-                    onFocusHandled();
+                    // フォーカス処理の直前にViewportを強制ロックする
+                    lockViewport();
+                    
+                    // DOMにメタタグの変更が確実に反映されるのを待つため、1フレーム遅延させてフォーカスを実行
+                    requestAnimationFrame(() => {
+                        if (textareaRef.current) {
+                            textareaRef.current.focus();
+                            textareaRef.current.setSelectionRange(focusRequest.offset, focusRequest.offset);
+                            onFocusHandled();
+                        }
+                    });
                 }
             }, [focusRequest, block.id, onFocusHandled]);
 
@@ -164,32 +195,22 @@
             
             const [fontSize, setFontSize] = useState(18);
 
-            // 【重要追加】ネイティブイベントを利用したViewportの最速制御
+            // タップ操作などのネイティブイベントに対するViewport制御
             useEffect(() => {
-                const meta = document.getElementById('viewport-meta');
-                if (!meta) return;
-
-                // ズームを無効化する処理
                 const preventZoom = (e) => {
                     const target = e.target;
-                    // 入力フォームに触れた瞬間に強制ロック
                     if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
-                        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0';
+                        lockViewport();
                     }
                 };
 
-                // ズームを元に戻す処理
                 const restoreZoom = (e) => {
                     const target = e.target;
                     if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
-                        // Safari側のフォーカス解除処理と競合しないよう少し遅延させる
-                        setTimeout(() => {
-                            meta.content = 'width=device-width, initial-scale=1.0';
-                        }, 100);
+                        unlockViewport();
                     }
                 };
 
-                // capture: true を指定し、イベント伝播の最も早い段階（キャプチャフェーズ）で検知する
                 document.addEventListener('touchstart', preventZoom, { capture: true, passive: true });
                 document.addEventListener('focusin', preventZoom, { capture: true });
                 document.addEventListener('focusout', restoreZoom, { capture: true });
@@ -293,6 +314,8 @@
                     if (window.innerWidth < 768) {
                         setSidebarOpen(false);
                     }
+                    // ジャンプによるフォーカス移動の準備としてロック
+                    lockViewport();
                     setFocusRequest({ id, offset: 0 });
                 }
             };
@@ -322,7 +345,18 @@
 
                         <div className="flex border-b border-dark-700">
                             <button className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'sticky' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`} onClick={() => setSidebarMode('sticky')}>付箋一覧</button>
-                            <button className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'search' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`} onClick={() => { setSidebarMode('search'); setTimeout(() => document.getElementById('search-input')?.focus(), 100); }}>検索</button>
+                            <button 
+                                className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'search' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`} 
+                                onClick={() => { 
+                                    setSidebarMode('search'); 
+                                    lockViewport();
+                                    requestAnimationFrame(() => {
+                                        setTimeout(() => document.getElementById('search-input')?.focus(), 100); 
+                                    });
+                                }}
+                            >
+                                検索
+                            </button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
@@ -358,7 +392,6 @@
                                             placeholder="メモを検索..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            // 検索ボックスは16px固定のため自動ズーム対象にはならないが、処理の統一化のためそのまま適用される
                                             className="w-full pl-10 pr-4 py-1.5 bg-dark-900 border border-dark-600 rounded-lg text-[16px] text-gray-200 placeholder-dark-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all"
                                         />
                                     </div>
@@ -418,7 +451,10 @@
                                 if(e.target === e.currentTarget) {
                                     const lastBlock = blocks[blocks.length - 1];
                                     if(lastBlock) {
-                                        setFocusRequest({ id: lastBlock.id, offset: lastBlock.text.length });
+                                        lockViewport();
+                                        requestAnimationFrame(() => {
+                                            setFocusRequest({ id: lastBlock.id, offset: lastBlock.text.length });
+                                        });
                                     }
                                 }
                             }}
