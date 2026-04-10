@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Unscroll</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -69,23 +69,13 @@
 
         const Block = ({ block, index, onChange, onSplit, onMerge, onToggleSticky, focusRequest, onFocusHandled, fontSize }) => {
             const textareaRef = useRef(null);
-            const containerRef = useRef(null);
             const [isComposing, setIsComposing] = useState(false);
-
-            // Safariがズームしない安全な基準サイズを18pxに変更
-            const BASE_FONT_SIZE = 18;
-            // ユーザー設定サイズとの倍率
-            const scale = fontSize / BASE_FONT_SIZE;
 
             const adjustHeight = () => {
                 const el = textareaRef.current;
-                const container = containerRef.current;
-                if (el && container) {
+                if (el) {
                     el.style.height = 'auto';
-                    const sh = el.scrollHeight; // BASE_FONT_SIZEベースでの高さ
-                    el.style.height = sh + 'px';
-                    // 縮小・拡大された実際の見た目の高さを親ラッパーに適用
-                    container.style.height = `${sh * scale}px`;
+                    el.style.height = el.scrollHeight + 'px';
                 }
             };
 
@@ -145,33 +135,21 @@
                         </div>
                     )}
 
-                    {/* スケール処理に対応するための親ラッパー */}
-                    <div ref={containerRef} className="relative w-full">
-                        <textarea
-                            ref={textareaRef}
-                            value={block.text}
-                            onChange={handleChange}
-                            onKeyDown={handleKeyDown}
-                            onCompositionStart={() => setIsComposing(true)}
-                            onCompositionEnd={() => setIsComposing(false)}
-                            placeholder={index === 0 && block.text === '' ? "思いついたことを記述する..." : ""}
-                            className="bg-transparent text-gray-200 outline-none resize-none overflow-hidden placeholder-dark-600"
-                            style={{ 
-                                // システム上は常に基準サイズで固定
-                                fontSize: `${BASE_FONT_SIZE}px`, 
-                                lineHeight: 1.5,
-                                // 倍率に合わせて横幅を拡張（縮小時に元の幅に戻るように逆算）
-                                width: `${(1 / scale) * 100}%`,
-                                // 基準点からスケール変形をかける
-                                transform: `scale(${scale})`,
-                                transformOrigin: 'top left',
-                                position: 'absolute',
-                                top: 0,
-                                left: 0
-                            }}
-                            rows={1}
-                        />
-                    </div>
+                    <textarea
+                        ref={textareaRef}
+                        value={block.text}
+                        onChange={handleChange}
+                        onKeyDown={handleKeyDown}
+                        onCompositionStart={() => setIsComposing(true)}
+                        onCompositionEnd={() => setIsComposing(false)}
+                        placeholder={index === 0 && block.text === '' ? "思いついたことを記述する..." : ""}
+                        className="w-full bg-transparent text-gray-200 outline-none resize-none overflow-hidden placeholder-dark-600"
+                        style={{ 
+                            fontSize: `${fontSize}px`, 
+                            lineHeight: 1.5 
+                        }}
+                        rows={1}
+                    />
                 </div>
             );
         };
@@ -185,6 +163,43 @@
             const [focusRequest, setFocusRequest] = useState(null);
             
             const [fontSize, setFontSize] = useState(18);
+
+            // 【重要追加】ネイティブイベントを利用したViewportの最速制御
+            useEffect(() => {
+                const meta = document.getElementById('viewport-meta');
+                if (!meta) return;
+
+                // ズームを無効化する処理
+                const preventZoom = (e) => {
+                    const target = e.target;
+                    // 入力フォームに触れた瞬間に強制ロック
+                    if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
+                        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0';
+                    }
+                };
+
+                // ズームを元に戻す処理
+                const restoreZoom = (e) => {
+                    const target = e.target;
+                    if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
+                        // Safari側のフォーカス解除処理と競合しないよう少し遅延させる
+                        setTimeout(() => {
+                            meta.content = 'width=device-width, initial-scale=1.0';
+                        }, 100);
+                    }
+                };
+
+                // capture: true を指定し、イベント伝播の最も早い段階（キャプチャフェーズ）で検知する
+                document.addEventListener('touchstart', preventZoom, { capture: true, passive: true });
+                document.addEventListener('focusin', preventZoom, { capture: true });
+                document.addEventListener('focusout', restoreZoom, { capture: true });
+
+                return () => {
+                    document.removeEventListener('touchstart', preventZoom, { capture: true });
+                    document.removeEventListener('focusin', preventZoom, { capture: true });
+                    document.removeEventListener('focusout', restoreZoom, { capture: true });
+                };
+            }, []);
 
             useEffect(() => {
                 const savedBlocks = localStorage.getItem('unscroll_data');
@@ -343,6 +358,7 @@
                                             placeholder="メモを検索..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
+                                            // 検索ボックスは16px固定のため自動ズーム対象にはならないが、処理の統一化のためそのまま適用される
                                             className="w-full pl-10 pr-4 py-1.5 bg-dark-900 border border-dark-600 rounded-lg text-[16px] text-gray-200 placeholder-dark-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all"
                                         />
                                     </div>
