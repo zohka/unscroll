@@ -2,7 +2,6 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <!-- アクセシビリティのためviewport設定は標準に戻します -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Unscroll</title>
     <!-- Tailwind CSS -->
@@ -31,14 +30,12 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        /* スクロールバーのカスタマイズ */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #404040; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         body { margin: 0; overflow: hidden; background-color: #121212; color: #e5e5e5; font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif; }
         
-        /* レンジスライダーの簡単なカスタマイズ */
         input[type=range] {
             -webkit-appearance: none;
             background: #2d2d2d;
@@ -63,37 +60,39 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-        // --- Icons (SVG) ---
         const IconMenu = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>;
         const IconSticky = ({ solid }) => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill={solid ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h12l6 6v12H3V3z"></path><path d="M15 3v6h6"></path></svg>;
         const IconSearch = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>;
         const IconX = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
 
-        // --- Helper ---
         const generateId = () => Math.random().toString(36).substring(2, 11);
 
-        // --- Components ---
-
-        // 個別の入力行（ブロック）
         const Block = ({ block, index, onChange, onSplit, onMerge, onToggleSticky, focusRequest, onFocusHandled, fontSize }) => {
             const textareaRef = useRef(null);
+            const containerRef = useRef(null);
             const [isComposing, setIsComposing] = useState(false);
 
-            // 自動リサイズ
+            // Safariがズームしない安全な基準サイズ
+            const BASE_FONT_SIZE = 16;
+            // ユーザー設定サイズとの倍率
+            const scale = fontSize / BASE_FONT_SIZE;
+
             const adjustHeight = () => {
                 const el = textareaRef.current;
-                if (el) {
+                const container = containerRef.current;
+                if (el && container) {
                     el.style.height = 'auto';
-                    el.style.height = el.scrollHeight + 'px';
+                    const sh = el.scrollHeight; // 16pxベースでの高さ
+                    el.style.height = sh + 'px';
+                    // 縮小・拡大された実際の見た目の高さを親ラッパーに適用
+                    container.style.height = `${sh * scale}px`;
                 }
             };
 
-            // テキストやフォントサイズが変わった際にリサイズを再計算
             useEffect(() => {
                 adjustHeight();
             }, [block.text, fontSize]);
 
-            // 外部からのフォーカス要求の処理
             useEffect(() => {
                 if (focusRequest && focusRequest.id === block.id && textareaRef.current) {
                     textareaRef.current.focus();
@@ -107,7 +106,7 @@
             };
 
             const handleKeyDown = (e) => {
-                if (isComposing) return; // IME入力中は無視
+                if (isComposing) return;
 
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -120,12 +119,10 @@
                 }
             };
 
-            // 行の高さ（line-height）を1.5として計算
             const lineHeightPx = fontSize * 1.5;
 
             return (
                 <div id={`block-${block.id}`} className="group relative flex items-start w-full py-1">
-                    {/* 付箋ボタン：高さを1行分に合わせて中央配置 */}
                     <div 
                         className="absolute -left-10 md:-left-12 top-1 flex items-center justify-center w-8 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                         style={{ height: `${lineHeightPx}px` }}
@@ -139,7 +136,6 @@
                             <IconSticky solid={block.sticky} />
                         </button>
                     </div>
-                    {/* 常に表示される付箋インジケーター */}
                     {block.sticky && (
                         <div 
                             className="absolute -left-10 md:-left-12 top-1 flex items-center justify-center w-8 pointer-events-none group-hover:hidden text-accent opacity-80"
@@ -149,42 +145,48 @@
                         </div>
                     )}
 
-                    {/* テキスト入力 */}
-                    <textarea
-                        ref={textareaRef}
-                        value={block.text}
-                        onChange={handleChange}
-                        onKeyDown={handleKeyDown}
-                        onCompositionStart={() => setIsComposing(true)}
-                        onCompositionEnd={() => setIsComposing(false)}
-                        placeholder={index === 0 && block.text === '' ? "思いついたことを記述する..." : ""}
-                        className="w-full bg-transparent text-gray-200 outline-none resize-none overflow-hidden placeholder-dark-600 block-textarea"
-                        style={{ 
-                            fontSize: `${fontSize}px`, 
-                            lineHeight: 1.5 
-                        }}
-                        rows={1}
-                    />
+                    {/* スケール処理に対応するための親ラッパー */}
+                    <div ref={containerRef} className="relative w-full">
+                        <textarea
+                            ref={textareaRef}
+                            value={block.text}
+                            onChange={handleChange}
+                            onKeyDown={handleKeyDown}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={() => setIsComposing(false)}
+                            placeholder={index === 0 && block.text === '' ? "思いついたことを記述する..." : ""}
+                            className="bg-transparent text-gray-200 outline-none resize-none overflow-hidden placeholder-dark-600"
+                            style={{ 
+                                // システム上は常に16px固定
+                                fontSize: `${BASE_FONT_SIZE}px`, 
+                                lineHeight: 1.5,
+                                // 倍率に合わせて横幅を拡張（縮小時に元の幅に戻るように逆算）
+                                width: `${(1 / scale) * 100}%`,
+                                // 基準点からスケール変形をかける
+                                transform: `scale(${scale})`,
+                                transformOrigin: 'top left',
+                                position: 'absolute',
+                                top: 0,
+                                left: 0
+                            }}
+                            rows={1}
+                        />
+                    </div>
                 </div>
             );
         };
 
-        // メインアプリケーション
         const App = () => {
-            // State
             const [blocks, setBlocks] = useState([]);
             const [isLoaded, setIsLoaded] = useState(false);
             const [sidebarOpen, setSidebarOpen] = useState(false);
-            const [sidebarMode, setSidebarMode] = useState('sticky'); // 'sticky' or 'search'
+            const [sidebarMode, setSidebarMode] = useState('sticky');
             const [searchQuery, setSearchQuery] = useState('');
             const [focusRequest, setFocusRequest] = useState(null);
             
-            // フォントサイズState（デフォルトは18px）
             const [fontSize, setFontSize] = useState(18);
 
-            // 初期ロード処理
             useEffect(() => {
-                // メモデータの読み込み
                 const savedBlocks = localStorage.getItem('unscroll_data');
                 if (savedBlocks) {
                     try {
@@ -201,7 +203,6 @@
                     setBlocks([{ id: generateId(), text: '', sticky: false }]);
                 }
 
-                // 設定データの読み込み
                 const savedFontSize = localStorage.getItem('unscroll_fontsize');
                 if (savedFontSize) {
                     setFontSize(Number(savedFontSize));
@@ -210,7 +211,6 @@
                 setIsLoaded(true);
             }, []);
 
-            // 保存処理
             useEffect(() => {
                 if (isLoaded) {
                     localStorage.setItem('unscroll_data', JSON.stringify(blocks));
@@ -218,7 +218,6 @@
                 }
             }, [blocks, fontSize, isLoaded]);
 
-            // ブロック操作関数
             const updateBlockText = useCallback((id, text) => {
                 setBlocks(prev => prev.map(b => b.id === id ? { ...b, text } : b));
             }, []);
@@ -242,7 +241,6 @@
                     newBlocks[idx] = { ...targetBlock, text: textBefore };
                     newBlocks.splice(idx + 1, 0, newBlock);
 
-                    // 次のレンダリングで新しいブロックにフォーカスを要求
                     setFocusRequest({ id: newBlock.id, offset: 0 });
                     
                     return newBlocks;
@@ -252,22 +250,16 @@
             const mergeBlock = useCallback((id) => {
                 setBlocks(prev => {
                     const idx = prev.findIndex(b => b.id === id);
-                    if (idx <= 0) return prev; // 先頭のブロックは結合できない
+                    if (idx <= 0) return prev; 
 
                     const currentBlock = prev[idx];
                     const prevBlock = prev[idx - 1];
                     const prevTextLength = prevBlock.text.length;
 
                     const newBlocks = [...prev];
-                    // 前のブロックにテキストを結合
-                    newBlocks[idx - 1] = { 
-                        ...prevBlock, 
-                        text: prevBlock.text + currentBlock.text 
-                    };
-                    // 現在のブロックを削除
+                    newBlocks[idx - 1] = { ...prevBlock, text: prevBlock.text + currentBlock.text };
                     newBlocks.splice(idx, 1);
 
-                    // 前のブロックの結合位置にフォーカスを要求
                     setFocusRequest({ id: prevBlock.id, offset: prevTextLength });
 
                     return newBlocks;
@@ -278,23 +270,18 @@
                 setFocusRequest(null);
             }, []);
 
-            // ジャンプ処理
             const scrollToBlock = (id) => {
                 const el = document.getElementById(`block-${id}`);
                 if (el) {
-                    // 少し上にマージンを持たせてスクロール
                     const y = el.getBoundingClientRect().top + window.scrollY - 100;
                     window.scrollTo({ top: y, behavior: 'smooth' });
-                    // サイドバーを閉じる（モバイルの場合）
                     if (window.innerWidth < 768) {
                         setSidebarOpen(false);
                     }
-                    // そのブロックにフォーカスを当てる
                     setFocusRequest({ id, offset: 0 });
                 }
             };
 
-            // サイドバー用のデータ派生
             const stickyBlocks = useMemo(() => blocks.filter(b => b.sticky), [blocks]);
             const searchResults = useMemo(() => {
                 if (!searchQuery.trim()) return [];
@@ -306,20 +293,11 @@
 
             return (
                 <div className="flex h-screen w-full bg-dark-900 overflow-hidden text-gray-200">
-                    
-                    {/* モバイル用サイドバーオーバーレイ */}
                     {sidebarOpen && (
-                        <div 
-                            className="fixed inset-0 bg-black/50 z-20 md:hidden"
-                            onClick={() => setSidebarOpen(false)}
-                        ></div>
+                        <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>
                     )}
 
-                    {/* サイドバー */}
-                    <div className={`
-                        fixed md:relative z-30 h-full w-80 bg-dark-800 border-r border-dark-700 flex flex-col transition-transform duration-300 ease-in-out
-                        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-                    `}>
+                    <div className={`fixed md:relative z-30 h-full w-80 bg-dark-800 border-r border-dark-700 flex flex-col transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
                         <div className="p-4 border-b border-dark-700 flex justify-between items-center">
                             <h1 className="text-xl font-bold tracking-wider text-gray-100">Unscroll</h1>
                             <button onClick={() => setSidebarOpen(false)} className="md:hidden text-gray-400 hover:text-white">
@@ -327,23 +305,11 @@
                             </button>
                         </div>
 
-                        {/* タブ */}
                         <div className="flex border-b border-dark-700">
-                            <button 
-                                className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'sticky' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`}
-                                onClick={() => setSidebarMode('sticky')}
-                            >
-                                付箋一覧
-                            </button>
-                            <button 
-                                className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'search' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`}
-                                onClick={() => { setSidebarMode('search'); setTimeout(() => document.getElementById('search-input')?.focus(), 100); }}
-                            >
-                                検索
-                            </button>
+                            <button className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'sticky' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`} onClick={() => setSidebarMode('sticky')}>付箋一覧</button>
+                            <button className={`flex-1 py-3 text-sm font-medium transition-colors ${sidebarMode === 'search' ? 'text-accent border-b-2 border-accent' : 'text-gray-400 hover:text-gray-200'}`} onClick={() => { setSidebarMode('search'); setTimeout(() => document.getElementById('search-input')?.focus(), 100); }}>検索</button>
                         </div>
 
-                        {/* サイドバーコンテンツ */}
                         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                             {sidebarMode === 'sticky' ? (
                                 <div>
@@ -353,17 +319,12 @@
                                         <ul className="space-y-3">
                                             {stickyBlocks.map(b => (
                                                 <li key={`sticky-${b.id}`}>
-                                                    <button 
-                                                        onClick={() => scrollToBlock(b.id)}
-                                                        className="w-full text-left p-3 rounded-lg bg-dark-700 hover:bg-dark-600 transition-colors group flex flex-col gap-1"
-                                                    >
+                                                    <button onClick={() => scrollToBlock(b.id)} className="w-full text-left p-3 rounded-lg bg-dark-700 hover:bg-dark-600 transition-colors group flex flex-col gap-1">
                                                         <div className="flex items-center gap-2 text-accent">
                                                             <IconSticky solid={true} />
                                                             <span className="text-xs text-gray-400 group-hover:text-gray-300">ジャンプ</span>
                                                         </div>
-                                                        <p className="text-sm line-clamp-3 text-gray-200 break-words">
-                                                            {b.text || '(空の行)'}
-                                                        </p>
+                                                        <p className="text-sm line-clamp-3 text-gray-200 break-words">{b.text || '(空の行)'}</p>
                                                     </button>
                                                 </li>
                                             ))}
@@ -376,7 +337,6 @@
                                         <div className="absolute left-3 text-gray-500 pointer-events-none">
                                             <IconSearch />
                                         </div>
-                                        {/* iOSでのズームを防ぐため text-[16px] を指定しつつ、高さを抑えるために py-1.5 に調整 */}
                                         <input
                                             id="search-input"
                                             type="text"
@@ -395,12 +355,8 @@
                                             <ul className="space-y-3">
                                                 {searchResults.map(b => (
                                                     <li key={`search-${b.id}`}>
-                                                        <button 
-                                                            onClick={() => scrollToBlock(b.id)}
-                                                            className="w-full text-left p-3 rounded-lg bg-dark-700 hover:bg-dark-600 transition-colors"
-                                                        >
+                                                        <button onClick={() => scrollToBlock(b.id)} className="w-full text-left p-3 rounded-lg bg-dark-700 hover:bg-dark-600 transition-colors">
                                                             <p className="text-sm line-clamp-3 text-gray-200 break-words">
-                                                                {/* ハイライト表示の簡易実装 */}
                                                                 {b.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) => 
                                                                     part.toLowerCase() === searchQuery.toLowerCase() 
                                                                         ? <span key={i} className="bg-accent/30 text-accent font-medium">{part}</span> 
@@ -417,7 +373,6 @@
                             )}
                         </div>
 
-                        {/* 設定領域（文字サイズ変更） */}
                         <div className="p-4 border-t border-dark-700 bg-dark-800">
                             <div className="flex justify-between items-center mb-3">
                                 <span className="text-sm font-medium text-gray-400">文字サイズ</span>
@@ -434,23 +389,16 @@
                         </div>
                     </div>
 
-                    {/* メインエディタ領域 */}
                     <div className="flex-1 flex flex-col h-full relative">
-                        {/* ヘッダー（モバイル用メニュートグルなど） */}
                         <div className="md:hidden absolute top-0 left-0 right-0 p-4 flex items-center z-10 bg-gradient-to-b from-dark-900 to-transparent pointer-events-none">
-                            <button 
-                                onClick={() => setSidebarOpen(true)}
-                                className="p-2 -ml-2 rounded-lg bg-dark-800 text-gray-400 pointer-events-auto shadow-lg border border-dark-700"
-                            >
+                            <button onClick={() => setSidebarOpen(true)} className="p-2 -ml-2 rounded-lg bg-dark-800 text-gray-400 pointer-events-auto shadow-lg border border-dark-700">
                                 <IconMenu />
                             </button>
                         </div>
 
-                        {/* スクロール領域 */}
                         <div 
                             className="flex-1 overflow-y-auto scroll-smooth pt-16 md:pt-24 pb-64 px-4 sm:px-8 md:px-16 lg:px-24"
                             onClick={(e) => {
-                                // 余白をクリックした際、最後のブロックにフォーカスを当てる補助機能
                                 if(e.target === e.currentTarget) {
                                     const lastBlock = blocks[blocks.length - 1];
                                     if(lastBlock) {
